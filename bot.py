@@ -2,6 +2,7 @@ import os
 import time
 import requests
 import psycopg2
+from fastapi import FastAPI
 # from dotenv import load_dotenv
 # load_dotenv()
 
@@ -18,6 +19,14 @@ DATABASE_URL = os.getenv("DATABASE_URL")
 
 if not BOT_TOKEN or not DATABASE_URL:
     raise RuntimeError("Missing TELEGRAM_BOT_TOKEN or DATABASE_URL")
+# ===================
+# FastAPI app
+# ===================
+app = FastAPI()
+
+@app.get("/")
+def root():
+    return {"status": "Bot is running!"}
 
 # ==================================================
 # 📊 MEXC API
