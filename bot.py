@@ -2,6 +2,9 @@ import os
 import time
 import requests
 import psycopg2
+from dotenv import load_dotenv
+load_dotenv()
+
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, Job
 
@@ -10,6 +13,7 @@ from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, Job
 # ==================================================
 BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 DATABASE_URL = os.getenv("DATABASE_URL")
+
 
 
 if not BOT_TOKEN or not DATABASE_URL:
