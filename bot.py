@@ -5,6 +5,7 @@ import psycopg2
 from fastapi import FastAPI
 import threading
 import uvicorn
+import asyncio
 
 # from dotenv import load_dotenv
 # load_dotenv()
@@ -215,7 +216,7 @@ async def price_checker(bot):
 # ==================================================
 # 🚀 MAIN
 # ==================================================
-def main():
+async def main():
     init_db()  # AUTO-CREATE TABLES
 
     app = ApplicationBuilder().token(BOT_TOKEN).build()
@@ -228,17 +229,17 @@ def main():
     # app.job_queue.run_once(lambda ctx: price_checker(app), 1)
     app.job_queue.run_repeating(job_wrapper, interval=10, first=0)
     print("🤖 Bot is running...")
-    app.run_polling()
+    await app.run_polling()
 
 def start_bot_thread():
     # run your existing main() in a separate thread
     threading.Thread(target=main, daemon=True).start()
 
 if __name__ == "__main__":
-    # start bot in background thread
-    start_bot_thread()
+    # Run bot in a separate thread, using asyncio.run inside the thread
+    threading.Thread(target=lambda: asyncio.run(main()), daemon=True).start()
 
-    # start FastAPI server for Render port
+    # Run FastAPI
     port = int(os.environ.get("PORT", 8000))
     uvicorn.run(app, host="0.0.0.0", port=port)
 
