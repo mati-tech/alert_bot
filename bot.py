@@ -3,6 +3,9 @@ import time
 import requests
 import psycopg2
 from fastapi import FastAPI
+import threading
+import uvicorn
+
 # from dotenv import load_dotenv
 # load_dotenv()
 
@@ -227,5 +230,15 @@ def main():
     print("🤖 Bot is running...")
     app.run_polling()
 
+def start_bot_thread():
+    # run your existing main() in a separate thread
+    threading.Thread(target=main, daemon=True).start()
+
 if __name__ == "__main__":
-    main()
+    # start bot in background thread
+    start_bot_thread()
+
+    # start FastAPI server for Render port
+    port = int(os.environ.get("PORT", 8000))
+    uvicorn.run(app, host="0.0.0.0", port=port)
+
