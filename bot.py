@@ -3,13 +3,14 @@ import time
 import requests
 import psycopg2
 from telegram import Update
-from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
+from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, Job
 
 # ==================================================
 # 🔐 ENVIRONMENT VARIABLES (SET ON RENDER)
 # ==================================================
 BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 DATABASE_URL = os.getenv("DATABASE_URL")
+
 
 if not BOT_TOKEN or not DATABASE_URL:
     raise RuntimeError("Missing TELEGRAM_BOT_TOKEN or DATABASE_URL")
@@ -24,6 +25,10 @@ MEXC_PRICE_URL = "https://api.mexc.com/api/v3/ticker/price"
 # ==================================================
 conn = psycopg2.connect(DATABASE_URL)
 conn.autocommit = True
+
+# Add this function outside main
+async def job_wrapper(context):
+    await price_checker(context.bot)
 
 def get_cursor():
     return conn.cursor()
@@ -127,38 +132,69 @@ async def delete_alert(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ==================================================
 # 🔁 PRICE MONITOR LOOP
 # ==================================================
-async def price_checker(app):
-    while True:
-        cur = get_cursor()
-        cur.execute("SELECT id, chat_id, symbol, target_price, direction FROM alerts")
-        alerts = cur.fetchall()
-        cur.close()
+# async def price_checker(app):
+#     while True:
+#         cur = get_cursor()
+#         cur.execute("SELECT id, chat_id, symbol, target_price, direction FROM alerts")
+#         alerts = cur.fetchall()
+#         cur.close()
 
-        for alert_id, chat_id, symbol, target, direction in alerts:
-            try:
-                price = get_price(symbol)
+#         for alert_id, chat_id, symbol, target, direction in alerts:
+#             try:
+#                 price = get_price(symbol)
 
-                hit_up = direction == "up" and price >= target
-                hit_down = direction == "down" and price <= target
+#                 hit_up = direction == "up" and price >= target
+#                 hit_down = direction == "down" and price <= target
 
-                if hit_up or hit_down:
-                    await app.bot.send_message(
-                        chat_id,
-                        f"🚨 *PRICE ALERT*\n\n"
-                        f"{symbol}\n"
-                        f"Target: {target}\n"
-                        f"Current: {price}",
-                        parse_mode="Markdown"
-                    )
+#                 if hit_up or hit_down:
+#                     await app.bot.send_message(
+#                         chat_id,
+#                         f"🚨 *PRICE ALERT*\n\n"
+#                         f"{symbol}\n"
+#                         f"Target: {target}\n"
+#                         f"Current: {price}",
+#                         parse_mode="Markdown"
+#                     )
 
-                    cur2 = get_cursor()
-                    cur2.execute("DELETE FROM alerts WHERE id = %s", (alert_id,))
-                    cur2.close()
+#                     cur2 = get_cursor()
+#                     cur2.execute("DELETE FROM alerts WHERE id = %s", (alert_id,))
+#                     cur2.close()
 
-            except Exception:
-                pass
+#             except Exception:
+#                 pass
 
-        time.sleep(10)
+#         time.sleep(10)
+
+async def price_checker(bot):
+    cur = get_cursor()
+    cur.execute("SELECT id, chat_id, symbol, target_price, direction FROM alerts")
+    alerts = cur.fetchall()
+    cur.close()
+
+    for alert_id, chat_id, symbol, target, direction in alerts:
+        try:
+            price = get_price(symbol)
+
+            hit_up = direction == "up" and price >= target
+            hit_down = direction == "down" and price <= target
+
+            if hit_up or hit_down:
+                await bot.send_message(
+                    chat_id,
+                    f"🚨 *PRICE ALERT*\n\n"
+                    f"{symbol}\n"
+                    f"Target: {target}\n"
+                    f"Current: {price}",
+                    parse_mode="Markdown"
+                )
+
+                cur2 = get_cursor()
+                cur2.execute("DELETE FROM alerts WHERE id = %s", (alert_id,))
+                cur2.close()
+        except:
+            pass
+
+
 
 # ==================================================
 # 🚀 MAIN
@@ -173,8 +209,8 @@ def main():
     app.add_handler(CommandHandler("list", list_alerts))
     app.add_handler(CommandHandler("delete", delete_alert))
 
-    app.job_queue.run_once(lambda ctx: price_checker(app), 1)
-
+    # app.job_queue.run_once(lambda ctx: price_checker(app), 1)
+    app.job_queue.run_repeating(job_wrapper, interval=10, first=0)
     print("🤖 Bot is running...")
     app.run_polling()
 
