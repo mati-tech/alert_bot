@@ -196,9 +196,9 @@ import uvicorn
 
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
-from dotenv import load_dotenv
+# from dotenv import load_dotenv
 
-load_dotenv()
+# load_dotenv()
 
 # ==================================================
 # 🔐 ENVIRONMENT VARIABLES
