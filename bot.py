@@ -186,24 +186,20 @@
 #     loop.create_task(main_bot())  # run bot in background
 #     uvicorn.run(api, host="0.0.0.0", port=port)
 
-
 import os
 import requests
 import psycopg2
 import asyncio
-import threading
+from contextlib import asynccontextmanager
 from fastapi import FastAPI
-from telegram import Update
-from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
-
-
-# from fastapi import FastAPI
 import uvicorn
 
-# from telegram import Update
-# from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
+from telegram import Update
+from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 from dotenv import load_dotenv
+
 load_dotenv()
+
 # ==================================================
 # 🔐 ENVIRONMENT VARIABLES
 # ==================================================
@@ -214,17 +210,9 @@ if not BOT_TOKEN or not DATABASE_URL:
     raise RuntimeError("Missing TELEGRAM_BOT_TOKEN or DATABASE_URL")
 
 # ==================================================
-# FastAPI for health check
+# Database Connection (Synchronous)
 # ==================================================
-api = FastAPI()
-
-@api.get("/")
-def root():
-    return {"status": "Bot is running!"}
-
-# ==================================================
-# Database setup
-# ==================================================
+# Note: For high-traffic production, consider using 'asyncpg' instead of 'psycopg2'
 conn = psycopg2.connect(DATABASE_URL)
 conn.autocommit = True
 
@@ -251,14 +239,15 @@ def init_db():
 MEXC_PRICE_URL = "https://api.mexc.com/api/v3/ticker/price"
 
 def get_price(symbol: str) -> float:
+    # Note: 'requests' is blocking. In heavy load, use 'aiohttp'.
     r = requests.get(MEXC_PRICE_URL, params={"symbol": symbol}, timeout=10)
     r.raise_for_status()
     return float(r.json()["price"])
 
 # ==================================================
-# Telegram bot commands
+# Telegram Logic
 # ==================================================
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "🤖 *MEXC Crypto Alert Bot*\n\n"
         "Commands:\n"
@@ -272,6 +261,7 @@ async def set_alert(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         symbol = context.args[0].upper()
         target = float(context.args[1])
+
         current_price = get_price(symbol)
         direction = "up" if target > current_price else "down"
 
@@ -285,7 +275,8 @@ async def set_alert(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(
             f"✅ Alert set!\n\nSymbol: {symbol}\nTarget: {target}\nDirection: {direction}"
         )
-    except Exception:
+    except Exception as e:
+        print(f"Error setting alert: {e}")
         await update.message.reply_text("❌ Usage: /set BTCUSDT 42000")
 
 async def list_alerts(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -322,66 +313,93 @@ async def delete_alert(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ Usage: /delete ID")
 
 # ==================================================
-# Price checker
+# Background Job Logic
 # ==================================================
-async def price_checker(bot_app):
-    cur = get_cursor()
-    cur.execute("SELECT id, chat_id, symbol, target_price, direction FROM alerts")
-    alerts = cur.fetchall()
-    cur.close()
+async def price_checker(bot):
+    """Checks prices and triggers alerts. Accepts the raw bot instance."""
+    try:
+        cur = get_cursor()
+        cur.execute("SELECT id, chat_id, symbol, target_price, direction FROM alerts")
+        alerts = cur.fetchall()
+        cur.close()
 
-    for alert_id, chat_id, symbol, target, direction in alerts:
-        try:
-            price = get_price(symbol)
-            hit_up = direction == "up" and price >= target
-            hit_down = direction == "down" and price <= target
+        if not alerts:
+            return
 
-            if hit_up or hit_down:
-                await bot_app.bot.send_message(
-                    chat_id,
-                    f"🚨 *PRICE ALERT*\n\n{symbol}\nTarget: {target}\nCurrent: {price}",
-                    parse_mode="Markdown"
-                )
+        for alert_id, chat_id, symbol, target, direction in alerts:
+            try:
+                price = get_price(symbol)
+                hit_up = direction == "up" and price >= target
+                hit_down = direction == "down" and price <= target
 
-                cur2 = get_cursor()
-                cur2.execute("DELETE FROM alerts WHERE id = %s", (alert_id,))
-                cur2.close()
-        except Exception:
-            pass
+                if hit_up or hit_down:
+                    await bot.send_message(
+                        chat_id=chat_id,
+                        text=f"🚨 *PRICE ALERT*\n\n{symbol}\nTarget: {target}\nCurrent: {price}",
+                        parse_mode="Markdown"
+                    )
 
-async def job_wrapper(context):
+                    cur2 = get_cursor()
+                    cur2.execute("DELETE FROM alerts WHERE id = %s", (alert_id,))
+                    cur2.close()
+            except Exception as e:
+                print(f"Error checking {symbol}: {e}")
+                
+    except Exception as e:
+        print(f"Database error in checker: {e}")
+
+async def job_wrapper(context: ContextTypes.DEFAULT_TYPE):
+    # Pass the bot instance from context to the checker
     await price_checker(context.bot)
 
 # ==================================================
-# Main bot function
+# Lifecycle & FastAPI
 # ==================================================
-async def main_bot():
+
+# 1. Create the Bot Application (but don't run it yet)
+ptb_app = ApplicationBuilder().token(BOT_TOKEN).build()
+ptb_app.add_handler(CommandHandler("start", start_command))
+ptb_app.add_handler(CommandHandler("set", set_alert))
+ptb_app.add_handler(CommandHandler("list", list_alerts))
+ptb_app.add_handler(CommandHandler("delete", delete_alert))
+
+# 2. Define Lifespan Manager
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # --- STARTUP ---
+    print("🚀 Starting Bot...")
     init_db()
-    bot_app = ApplicationBuilder().token(BOT_TOKEN).build()
+    
+    # Manually initialize the bot
+    await ptb_app.initialize()
+    await ptb_app.start()
+    
+    # Add the repeating job to the bot's job queue
+    ptb_app.job_queue.run_repeating(job_wrapper, interval=10, first=1)
+    
+    # Start polling updates (non-blocking method)
+    await ptb_app.updater.start_polling()
+    
+    yield  # FastAPI runs here
+    
+    # --- SHUTDOWN ---
+    print("🛑 Stopping Bot...")
+    await ptb_app.updater.stop()
+    await ptb_app.stop()
+    await ptb_app.shutdown()
 
-    bot_app.add_handler(CommandHandler("start", start))
-    bot_app.add_handler(CommandHandler("set", set_alert))
-    bot_app.add_handler(CommandHandler("list", list_alerts))
-    bot_app.add_handler(CommandHandler("delete", delete_alert))
+# 3. Initialize FastAPI with lifespan
+api = FastAPI(lifespan=lifespan)
 
-    bot_app.job_queue.run_repeating(job_wrapper, interval=10, first=0)
-    print("🤖 Bot is running...")
-    await bot_app.run_polling()
+@api.get("/")
+def root():
+    return {"status": "Bot and API are running together!"}
 
 # ==================================================
 # Entry point
 # ==================================================
 if __name__ == "__main__":
-    # Start FastAPI in a background thread
-    threading.Thread(
-        target=lambda: uvicorn.run(api, host="0.0.0.0", port=int(os.environ.get("PORT", 8000))),
-        daemon=True
-    ).start()
-
-    # Start bot in the current event loop
-    loop = asyncio.get_event_loop()
-    loop.create_task(main_bot())
-
-    print("🤖 Bot is running...")
-    loop.run_forever()
-
+    # Uvicorn now drives the main loop. 
+    # The bot runs as a background task via the lifespan event.
+    port = int(os.environ.get("PORT", 8000))
+    uvicorn.run(api, host="0.0.0.0", port=port)
