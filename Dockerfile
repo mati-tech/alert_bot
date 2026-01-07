@@ -22,6 +22,6 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 
 # Start the bot
-# CMD ["python", "bot.py"]
+CMD ["python", "bot.py"]
 
-CMD ["uvicorn", "bot:api", "--host", "0.0.0.0", "--port", "${PORT}"]
+# CMD ["uvicorn", "bot:api", "--host", "0.0.0.0", "--port", "${PORT}"]
