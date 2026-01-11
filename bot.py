@@ -287,9 +287,22 @@ async def lifespan(app: FastAPI):
 
 api = FastAPI(lifespan=lifespan)
 
-@api.get("/")
-def root():
+# @api.get("/")
+# def root():
+#     return {"status": "running"}
+
+# @api.head("/")
+# async def status_head():
+#     return Response(status_code=200)
+
+# from fastapi import FastAPI, Response
+
+api = FastAPI(lifespan=lifespan)
+
+@api.api_route("/", methods=["GET", "HEAD"])
+async def root():
     return {"status": "running"}
+
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8000))
