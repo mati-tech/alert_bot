@@ -80,7 +80,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
-    text = "🤖 BitGeeks Crypto Alert Bot*\nSelect an option below:"
+    text = "🤖 Crypto Alert Bot*\nSelect an option below:"
     
     # Check if this is a callback (button click) or a command (/start)
     if update.callback_query:
