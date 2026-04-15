@@ -149,12 +149,12 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup = InlineKeyboardMarkup(keyboard)
         
         text = (
-            "🤖 *Crypto Alert Bot*\n\n"
+            "🤖 Crypto Alert Bot\n\n"
             "Track cryptocurrency prices and get notified when they hit your targets.\n\n"
-            "• *To add an alert:* send a message with the symbol and target price\n"
+            " To add an alert: send a message with the symbol and target price\n"
             "  Example: `BTCUSDT 65000` or `ETHUSDT 3500`\n"
-            "• The bot automatically detects if the target is above or below the current price.\n"
-            "• Manage your alerts from the menu below."
+            "The bot automatically detects if the target is above or below the current price.\n"
+            "Manage your alerts from the menu below."
         )
         
         if update.callback_query:
