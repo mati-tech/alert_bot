@@ -5,7 +5,7 @@
 # uvicorn
 
 
-python-telegram-bot==20.7
+python-telegram-bot[job-queue]==20.7
 fastapi==0.104.1
 uvicorn==0.24.0
 asyncpg==0.29.0
